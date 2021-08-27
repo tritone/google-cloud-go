@@ -20,7 +20,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -34,6 +33,7 @@ import (
 	storage_v1_tests "cloud.google.com/go/storage/internal/test/conformance"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/go-cmp/cmp"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	raw "google.golang.org/api/storage/v1"
 	htransport "google.golang.org/api/transport/http"
@@ -112,19 +112,99 @@ type retryFunc func(ctx context.Context, c *Client, fs *resources, preconditions
 // because multiple library methods may use the same call (e.g. get could be a
 // read or just a metadata get).
 var methods = map[string][]retryFunc{
+	"storage.bucket_acl.get": {
+		// Not used in library
+	},
+	"storage.bucket_acl.list": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			_, err := c.Bucket(fs.bucket.Name).ACL().List(ctx)
+			return err
+		},
+	},
+	"storage.buckets.delete": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			// Delete files from bucket before deleting bucket
+			it := c.Bucket(fs.bucket.Name).Objects(ctx, nil)
+			for {
+				attrs, err := it.Next()
+				if err == iterator.Done {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				if err := c.Bucket(fs.bucket.Name).Object(attrs.Name).Delete(ctx); err != nil {
+					return err
+				}
+			}
+			return c.Bucket(fs.bucket.Name).Delete(ctx)
+		},
+	},
+	"storage.buckets.get": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			_, err := c.Bucket(fs.bucket.Name).Attrs(ctx)
+			return err
+		},
+	},
+	"storage.buckets.getIamPolicy": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			_, err := c.Bucket(fs.bucket.Name).IAM().Policy(ctx)
+			return err
+		},
+	},
+	"storage.buckets.insert": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			return c.Bucket("bucket").Create(ctx, projectID, nil)
+		},
+	},
+	"storage.buckets.list": {
+		// func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+		// 	it := c.Buckets(ctx, projectID)
+		// 	_, err := it.Next()
+		// 	if err == iterator.Done {
+		// 		err = nil
+		// 	}
+		// 	return err
+		// },
+	},
+	"storage.buckets.lockRetentionPolicy": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			attrs, err := c.Bucket(fs.bucket.Name).Attrs(ctx)
+			if err != nil {
+				return err
+			}
+			return c.Bucket(fs.bucket.Name).If(BucketConditions{MetagenerationMatch: attrs.MetaGeneration}).LockRetentionPolicy(ctx)
+		},
+	},
+	"storage.buckets.testIamPermission": {
+		// func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+		// 	_, err := c.Bucket(fs.bucket.Name).IAM().TestPermissions(ctx, []string{"storage.buckets.create"})
+		// 	return err
+		// },
+	},
+	"storage.buckets.update": {
+		func(ctx context.Context, c *Client, fs *resources, preconditions bool) error {
+			uattrs := BucketAttrsToUpdate{StorageClass: "ARCHIVE"}
+			bkt := c.Bucket(fs.bucket.Name)
+			if preconditions {
+				bkt = bkt.If(BucketConditions{MetagenerationMatch: fs.bucket.MetaGeneration})
+			}
+			_, err := bkt.Update(ctx, uattrs)
+			return err
+		}},
 	"storage.objects.get": {
 		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
 			_, err := c.Bucket(fs.bucket.Name).Object(fs.object.Name).Attrs(ctx)
 			return err
 		},
-		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
-			r, err := c.Bucket(fs.bucket.Name).Object(fs.object.Name).NewReader(ctx)
-			if err != nil {
-				return err
-			}
-			_, err = io.Copy(ioutil.Discard, r)
-			return err
-		},
+		// func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+		// 	r, err := c.Bucket(fs.bucket.Name).Object(fs.object.Name).NewReader(ctx)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	_, err = io.Copy(ioutil.Discard, r)
+		// 	return err
+		// },
 	},
 	"storage.objects.update": {
 		func(ctx context.Context, c *Client, fs *resources, preconditions bool) error {
@@ -137,21 +217,9 @@ var methods = map[string][]retryFunc{
 			return err
 		},
 	},
-	"storage.buckets.update": {
-		func(ctx context.Context, c *Client, fs *resources, preconditions bool) error {
-			uattrs := BucketAttrsToUpdate{StorageClass: "ARCHIVE"}
-			bkt := c.Bucket(fs.bucket.Name)
-			if preconditions {
-				bkt = bkt.If(BucketConditions{MetagenerationMatch: fs.bucket.MetaGeneration})
-			}
-			_, err := bkt.Update(ctx, uattrs)
-			return err
-		}},
 }
 
 func TestRetryConformance(t *testing.T) {
-
-	fmt.Errorf("hdi\n")
 	// host := os.Getenv("STORAGE_EMULATOR_HOST")
 	// if host == "" {
 	// 	t.Skip("This test must use the testbench emulator; set STORAGE_EMULATOR_HOST to run.")
@@ -164,7 +232,6 @@ func TestRetryConformance(t *testing.T) {
 
 	ctx := context.Background()
 
-	fmt.Errorf("hi")
 	// Create non-wrapped client to use for setup steps.
 	client, err := NewClient(ctx)
 	if err != nil {
@@ -238,7 +305,7 @@ func createRetryTest(host string, instructions map[string][]string) (string, err
 	endpoint := host + "/retry_test"
 	c := http.DefaultClient
 	data := struct {
-		Instructions map[string][]string `json:"test_instructions"`
+		Instructions map[string][]string `json:"instructions"`
 	}{
 		Instructions: instructions,
 	}
@@ -247,6 +314,7 @@ func createRetryTest(host string, instructions map[string][]string) (string, err
 	if err := json.NewEncoder(buf).Encode(data); err != nil {
 		return "", fmt.Errorf("encoding request: %v", err)
 	}
+
 	resp, err := c.Post(endpoint, "application/json", buf)
 	if err != nil || resp.StatusCode != 200 {
 		return "", fmt.Errorf("creating retry test: err: %v, resp: %+v", err, resp)
@@ -304,8 +372,14 @@ type withTestID struct {
 }
 
 func (wt *withTestID) RoundTrip(r *http.Request) (*http.Response, error) {
-	r.Header.Add("x-retry-test-id", wt.testID)
+	if r.Header.Get("x-retry-test-id") == "" {
+		r.Header.Add("x-retry-test-id", wt.testID)
+	}
+
+	// req, _ := httputil.DumpRequest(r, false)
+	// fmt.Printf("%v", string(req))
 	resp, err := wt.rt.RoundTrip(r)
+
 	//if err != nil{
 	//	log.Printf("Error: %+v", err)
 	//}
