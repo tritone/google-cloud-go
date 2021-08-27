@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -112,9 +113,7 @@ type retryFunc func(ctx context.Context, c *Client, fs *resources, preconditions
 // because multiple library methods may use the same call (e.g. get could be a
 // read or just a metadata get).
 var methods = map[string][]retryFunc{
-	"storage.bucket_acl.get": {
-		// Not used in library
-	},
+	"storage.bucket_acl.get": {}, // Not used in library
 	"storage.bucket_acl.list": {
 		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
 			_, err := c.Bucket(fs.bucket.Name).ACL().List(ctx)
@@ -158,14 +157,11 @@ var methods = map[string][]retryFunc{
 		},
 	},
 	"storage.buckets.list": {
-		// func(ctx context.Context, c *Client, fs *resources, _ bool) error {
-		// 	it := c.Buckets(ctx, projectID)
-		// 	_, err := it.Next()
-		// 	if err == iterator.Done {
-		// 		err = nil
-		// 	}
-		// 	return err
-		// },
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			it := c.Buckets(ctx, projectID)
+			it.Next()
+			return nil
+		},
 	},
 	"storage.buckets.lockRetentionPolicy": {
 		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
@@ -176,11 +172,37 @@ var methods = map[string][]retryFunc{
 			return c.Bucket(fs.bucket.Name).If(BucketConditions{MetagenerationMatch: attrs.MetaGeneration}).LockRetentionPolicy(ctx)
 		},
 	},
-	"storage.buckets.testIamPermission": {
-		// func(ctx context.Context, c *Client, fs *resources, _ bool) error {
-		// 	_, err := c.Bucket(fs.bucket.Name).IAM().TestPermissions(ctx, []string{"storage.buckets.create"})
-		// 	return err
-		// },
+	"storage.buckets.testIamPermissions": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			_, err := c.Bucket(fs.bucket.Name).IAM().TestPermissions(ctx, nil)
+			return err
+		},
+	},
+	"storage.default_object_acl.get": {}, // Not used in the library
+	"storage.default_object_acl.list": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			_, err := c.Bucket(fs.bucket.Name).DefaultObjectACL().List(ctx)
+			return err
+		},
+	},
+	"storage.hmacKey.delete": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			c.HMACKeyHandle(projectID, fs.hmacKey.AccessID).Update(ctx, HMACKeyAttrsToUpdate{State: "INACTIVE"})
+			return c.HMACKeyHandle(projectID, fs.hmacKey.AccessID).Delete(ctx)
+		},
+	},
+	"storage.hmacKey.get": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+
+			//_, err := c.HMACKeyHandle(projectID, fs.hmacKey.AccessID).Get(ctx)
+			return nil
+		},
+	},
+	"storage.hmacKey.list": {
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			//c.ListHMACKeys(ctx, projectID)
+			return nil
+		},
 	},
 	"storage.buckets.update": {
 		func(ctx context.Context, c *Client, fs *resources, preconditions bool) error {
@@ -197,14 +219,14 @@ var methods = map[string][]retryFunc{
 			_, err := c.Bucket(fs.bucket.Name).Object(fs.object.Name).Attrs(ctx)
 			return err
 		},
-		// func(ctx context.Context, c *Client, fs *resources, _ bool) error {
-		// 	r, err := c.Bucket(fs.bucket.Name).Object(fs.object.Name).NewReader(ctx)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	_, err = io.Copy(ioutil.Discard, r)
-		// 	return err
-		// },
+		func(ctx context.Context, c *Client, fs *resources, _ bool) error {
+			r, err := c.Bucket(fs.bucket.Name).Object(fs.object.Name).NewReader(ctx)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(ioutil.Discard, r)
+			return err
+		},
 	},
 	"storage.objects.update": {
 		func(ctx context.Context, c *Client, fs *resources, preconditions bool) error {
@@ -288,7 +310,6 @@ func TestRetryConformance(t *testing.T) {
 							if err := deleteRetryTest(host, testID); err != nil {
 								t.Errorf("deleting retry test: %v", err)
 							}
-
 						})
 					}
 
@@ -372,9 +393,7 @@ type withTestID struct {
 }
 
 func (wt *withTestID) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.Header.Get("x-retry-test-id") == "" {
-		r.Header.Add("x-retry-test-id", wt.testID)
-	}
+	r.Header.Set("x-retry-test-id", wt.testID)
 
 	// req, _ := httputil.DumpRequest(r, false)
 	// fmt.Printf("%v", string(req))
