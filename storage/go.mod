@@ -1,14 +1,17 @@
 module cloud.google.com/go/storage
 
-go 1.20
+go 1.21
 
 retract [v1.25.0, v1.27.0] // due to https://github.com/googleapis/google-cloud-go/issues/6857
+
+replace google.golang.org/grpc v1.65.0 => github.com/tritone/grpc-go v0.0.0-20240701182450-c5ed95110455
 
 require (
 	cloud.google.com/go v0.115.0
 	cloud.google.com/go/compute/metadata v0.4.0
 	cloud.google.com/go/iam v1.1.10
 	cloud.google.com/go/longrunning v0.5.9
+	github.com/golang/protobuf v1.5.4
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.12.5
@@ -16,7 +19,7 @@ require (
 	google.golang.org/api v0.188.0
 	google.golang.org/genproto v0.0.0-20240708141625-4ad9e859172b
 	google.golang.org/genproto/googleapis/api v0.0.0-20240701130421-f6361c86f094
-	google.golang.org/grpc v1.64.1
+	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
 )
 
@@ -27,7 +30,6 @@ require (
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/martian/v3 v3.3.3 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect

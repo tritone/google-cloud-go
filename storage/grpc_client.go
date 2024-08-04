@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/mem"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -988,6 +989,24 @@ func (bytesCodec) Unmarshal(data []byte, v any) error {
 }
 
 func (bytesCodec) Name() string {
+	// If this isn't "", then gRPC sets the content-subtype of the call to this
+	// value and we get errors.
+	return ""
+}
+
+type bytesCodecV2 struct {
+	encoding.CodecV2
+}
+
+func (bytesCodecV2) Marshal(v any) (out mem.BufferSlice, err error) {
+	return
+}
+
+func (bytesCodecV2) Unmarshal(data mem.BufferSlice, v any) error {
+	return nil
+}
+
+func (bytesCodecV2) Name() string {
 	// If this isn't "", then gRPC sets the content-subtype of the call to this
 	// value and we get errors.
 	return ""
