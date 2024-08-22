@@ -1606,9 +1606,10 @@ func (r *gRPCReader) WriteTo(w io.Writer) (int64, error) {
 		// present in the response here.
 		// TODO: Figure out if we need to support decompressive transcoding
 		// https://cloud.google.com/storage/docs/transcoding.
-		written, err := w.Write(msg)
+		data := msg.GetChecksummedData().GetContent()
+		written, err := w.Write(data)
 		r.seen += int64(written)
-		r.updateCRC(msg)
+		r.updateCRC(data)
 		if err != nil {
 			return r.seen - alreadySeen, err
 		}
