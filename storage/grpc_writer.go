@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"time"
 
@@ -160,6 +161,7 @@ func (c *grpcStorageClient) OpenWriter(params *openWriterParams, opts ...storage
 		offset = wbs.takeoverOffset
 		gw.streamSender = wbs
 		o = wbs.objResource
+		log.Printf("takeover: setting resource to %v", o)
 		setObj(newObjectFromProto(o))
 	}
 
@@ -185,6 +187,7 @@ func (c *grpcStorageClient) OpenWriter(params *openWriterParams, opts ...storage
 					obj, err := gw.uploadBuffer(ctx, recvd, offset, doneReading)
 					if obj != nil {
 						o = obj
+						log.Printf("upload: setting resource to %v", o)
 						setObj(newObjectFromProto(o))
 					}
 					return err
@@ -213,6 +216,7 @@ func (c *grpcStorageClient) OpenWriter(params *openWriterParams, opts ...storage
 				// finish.
 				if doneReading {
 					// Build Object from server's response.
+					log.Printf("close: setting resource to %v", o)
 					setObj(newObjectFromProto(o))
 					return nil
 				}
@@ -746,6 +750,12 @@ func (w *gRPCWriter) newGRPCAppendTakeoverWriteBufferSender(ctx context.Context)
 		return nil, err
 	}
 	firstResp := <-s.recvs
+	if firstResp.GetResource() != nil {
+		log.Printf("takeover first msg: received resource for object '%+v'", w.appendSpec.Object)
+	} else {
+		log.Printf("takeover first msg: nil resource for object '%+v'; recverr %v", w.appendSpec.Object, s.recvErr)
+	}
+
 	// Check recvErr after getting the response.
 	if s.recvErr != nil {
 		return nil, s.recvErr

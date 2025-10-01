@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -262,6 +263,7 @@ func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	trace.EndSpan(w.ctx, w.err)
+	log.Printf("closing: w.Attrs: %v, w.err: %v", w.obj, w.err)
 	return w.err
 }
 
